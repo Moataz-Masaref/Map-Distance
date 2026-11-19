@@ -14,6 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="مسافات">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
 <style>
   *{box-sizing:border-box}
   html,body{margin:0;height:100%;font-family:Tahoma,Arial,sans-serif;font-size:14px;color:#1d2433}
@@ -29,6 +30,8 @@
     #side.open{transform:none}
     .leaflet-control-zoom{display:none}
   }
+  .leaflet-control-rotate a{width:44px!important;height:44px!important;line-height:44px!important}
+  .leaflet-control-rotate-arrow{transform-origin:center}
   #closeSide{position:absolute;left:10px;top:10px;background:rgba(255,255,255,.2);color:#fff;border:0;font-size:18px;width:34px;height:34px;border-radius:50%;padding:0}
   header{position:relative}
   /* أزرار عائمة فوق الخريطة */
@@ -63,7 +66,7 @@
   .num{display:inline-block;min-width:24px;height:24px;line-height:24px;text-align:center;border-radius:12px;background:#0b5394;color:#fff;font-weight:bold;font-size:12px}
   .seg{font-size:12px;color:#0b5394;margin-top:3px}
   .coords{font-size:11px;color:#667085;direction:ltr;text-align:right}
-  .lbl{background:#0b5394;color:#fff;border:2px solid #fff;border-radius:50%;width:26px!important;height:26px!important;line-height:22px;text-align:center;font-weight:bold;font-size:12px;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+  .lbl{background:#0b5394;color:#fff;border:1.5px solid #fff;border-radius:50%;text-align:center;font-weight:bold;box-shadow:0 1px 3px rgba(0,0,0,.45);box-sizing:border-box;display:flex;align-items:center;justify-content:center;overflow:hidden}
   .dist-tip{background:rgba(255,255,255,.92);border:1px solid #0b5394;color:#0b5394;font-weight:bold;font-size:11px;padding:1px 5px}
 </style>
 </head>
@@ -90,6 +93,10 @@
         <span id="swatches" style="display:flex;gap:4px"></span>
         <input id="lineColor" type="color" value="#ffcc00" title="لون تاني" style="width:34px;height:28px;padding:1px">
         <select id="lineWidth" title="سُمك الخط"><option value="2">رفيع</option><option value="4" selected>عادي</option><option value="7">تخين</option></select>
+      </div>
+      <div class="row">
+        <span>حجم النقطة:</span>
+        <select id="ptSize"><option value="8">صغيرة جداً (بدون رقم)</option><option value="14" selected>صغيرة</option><option value="20">متوسطة</option><option value="26">كبيرة</option></select>
       </div>
       <div class="row">
         <span>إجمالي:</span><span class="big" id="total">0 م</span>
@@ -126,7 +133,9 @@
 </div>
 
 <script>
-const map = L.map('map',{zoomControl:true,maxZoom:22}).setView([24.7136,46.6753],12);
+const map = L.map('map',{zoomControl:true,maxZoom:22,
+  rotate:true, bearing:0, touchRotate:true, shiftKeyRotate:true,
+  rotateControl:{closeOnZeroBearing:false, position:'topleft'}}).setView([24.7136,46.6753],12);
 // maxNativeZoom: لما الزوم يعدّي أعلى دقة متاحة، بيكبّر آخر صورة بدل ما الخريطة تفضى
 const gHybrid = L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}&hl=ar',{subdomains:'0123',maxZoom:22,maxNativeZoom:20,attribution:'© Google'});
 const gSat = L.tileLayer('https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',{subdomains:'0123',maxZoom:22,maxNativeZoom:20,attribution:'© Google'});
@@ -148,7 +157,8 @@ L.control.scale({imperial:false}).addTo(map);
 let pts = [];            // {lat,lng,name,marker}
 let mode = 'path';       // path | star
 let adding = true;
-let lineColor = '#ffcc00', lineWidth = 4;
+let lineColor = '#ffcc00', lineWidth = 4, ptSize = 14;
+try{ const z=localStorage.getItem('mdt_ptsize'); if(z) ptSize=+z; }catch(e){}
 const lines = L.layerGroup().addTo(map);
 const $ = id => document.getElementById(id);
 
@@ -161,7 +171,10 @@ function hav(a,b){
 function fmt(m){ return m>=1000 ? (m/1000).toFixed(3)+' كم' : m.toFixed(1)+' م'; }
 function say(t){ $('msg').textContent=t; const ts=$('toast'); ts.textContent=t; ts.style.display='block'; clearTimeout(say.t); say.t=setTimeout(()=>{$('msg').textContent='';ts.style.display='none';},3500); }
 
-function icon(n){ return L.divIcon({className:'lbl',html:n,iconSize:[26,26],iconAnchor:[13,13]}); }
+function icon(n){
+  const z=ptSize, fs=Math.max(7,Math.round(z*0.5));
+  return L.divIcon({className:'lbl',html:`<span style="font-size:${fs}px;line-height:1">${z>=12?n:''}</span>`,iconSize:[z,z],iconAnchor:[z/2,z/2]});
+}
 
 function addPoint(lat,lng,name){
   const p={lat,lng,name:name||''};
@@ -240,6 +253,8 @@ COLORS.forEach(c=>{
   s.onclick=()=>setColor(c); $('swatches').appendChild(s);
 });
 $('lineColor').oninput=e=>setColor(e.target.value);
+$('ptSize').value=String(ptSize);
+$('ptSize').onchange=e=>{ ptSize=+e.target.value; try{localStorage.setItem('mdt_ptsize',ptSize);}catch(_){} redraw(true); };
 $('lineWidth').onchange=e=>{ lineWidth=+e.target.value; try{localStorage.setItem('mdt_width',lineWidth);}catch(_){} redraw(false); };
 try{ const c=localStorage.getItem('mdt_color'); if(c) lineColor=c; const w=localStorage.getItem('mdt_width'); if(w){lineWidth=+w; $('lineWidth').value=w;} }catch(e){}
 setColor(lineColor);

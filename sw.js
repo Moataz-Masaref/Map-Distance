@@ -1,9 +1,10 @@
-// v5 – غيّر الرقم ده مع كل تحديث عشان الموبايل ياخد النسخة الجديدة
-const APP = 'map-app-v5';
+// v7 – غيّر الرقم ده مع كل تحديث عشان الموبايل ياخد النسخة الجديدة
+const APP = 'map-app-v7';
 const TILES = 'map-tiles';
 const MAX_TILES = 1500;
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png',
-  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'];
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+  'https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(APP).then(c => Promise.all(SHELL.map(u =>
