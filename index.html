@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b5394">
+<title>قياس المسافات على الخريطة</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="مسافات">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:Tahoma,Arial,sans-serif;font-size:14px;color:#1d2433}
+  html,body{overflow:hidden;overscroll-behavior:none}
+  #map{position:fixed;inset:0;z-index:1}
+  /* لوحة الإعدادات: مخفية افتراضياً */
+  #side{position:fixed;z-index:1000;background:#f7f8fa;display:flex;flex-direction:column;overflow:hidden;
+        box-shadow:0 0 18px rgba(0,0,0,.35);transition:transform .25s ease;
+        top:0;bottom:0;right:0;width:360px;max-width:92vw;transform:translateX(105%)}
+  #side.open{transform:none}
+  @media (max-width:700px){
+    #side{top:auto;left:0;right:0;bottom:0;width:100%;max-width:none;height:72vh;border-radius:16px 16px 0 0;transform:translateY(105%)}
+    #side.open{transform:none}
+    .leaflet-control-zoom{display:none}
+  }
+  #closeSide{position:absolute;left:10px;top:10px;background:rgba(255,255,255,.2);color:#fff;border:0;font-size:18px;width:34px;height:34px;border-radius:50%;padding:0}
+  header{position:relative}
+  /* أزرار عائمة فوق الخريطة */
+  .fab{position:fixed;z-index:900;width:52px;height:52px;border-radius:50%;border:0;background:#fff;
+       box-shadow:0 2px 8px rgba(0,0,0,.35);font-size:22px;padding:0;display:flex;align-items:center;justify-content:center}
+  .fab:active{transform:scale(.94)}
+  #fabSet{left:14px;bottom:calc(18px + env(safe-area-inset-bottom));background:#0b5394;color:#fff}
+  #fabLoc{left:14px;bottom:calc(80px + env(safe-area-inset-bottom))}
+  #fabUndo{left:14px;bottom:calc(142px + env(safe-area-inset-bottom))}
+  #fabAdd{left:14px;bottom:calc(204px + env(safe-area-inset-bottom))}
+  #fabAdd.off{background:#ddd;opacity:.8}
+  #chip{position:fixed;z-index:900;top:calc(10px + env(safe-area-inset-top));right:10px;background:#0b5394;color:#fff;
+        padding:7px 13px;border-radius:20px;font-weight:bold;font-size:15px;box-shadow:0 2px 8px rgba(0,0,0,.35);max-width:70vw}
+  #chip small{font-weight:normal;font-size:11px;opacity:.85;display:block}
+  #toast{position:fixed;z-index:1100;bottom:calc(20px + env(safe-area-inset-bottom));right:50%;transform:translateX(50%);
+         background:rgba(0,0,0,.8);color:#fff;padding:8px 14px;border-radius:18px;font-size:13px;display:none;max-width:80vw;text-align:center}
+  header{padding:12px 14px;background:#0b5394;color:#fff}
+  header h1{margin:0;font-size:16px}
+  .sec{padding:10px 14px;border-bottom:1px solid #e3e6eb}
+  .row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:4px 0}
+  button{border:1px solid #c5cbd5;background:#fff;border-radius:6px;padding:6px 10px;cursor:pointer;font-family:inherit;font-size:13px}
+  button:hover{background:#eef2f7}
+  button.on{background:#0b5394;color:#fff;border-color:#0b5394}
+  button.red{color:#b3261e}
+  input,select{font-family:inherit;font-size:13px;padding:5px 7px;border:1px solid #c5cbd5;border-radius:6px}
+  .big{font-size:22px;font-weight:bold;color:#0b5394}
+  .muted{color:#667085;font-size:12px}
+  #list{flex:1;overflow:auto;padding:6px 10px}
+  .pt{background:#fff;border:1px solid #e3e6eb;border-radius:8px;padding:7px 9px;margin-bottom:6px}
+  .pt .top{display:flex;justify-content:space-between;align-items:center;gap:6px}
+  .pt input{width:100%;margin-top:4px}
+  .num{display:inline-block;min-width:24px;height:24px;line-height:24px;text-align:center;border-radius:12px;background:#0b5394;color:#fff;font-weight:bold;font-size:12px}
+  .seg{font-size:12px;color:#0b5394;margin-top:3px}
+  .coords{font-size:11px;color:#667085;direction:ltr;text-align:right}
+  .lbl{background:#0b5394;color:#fff;border:2px solid #fff;border-radius:50%;width:26px!important;height:26px!important;line-height:22px;text-align:center;font-weight:bold;font-size:12px;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+  .dist-tip{background:rgba(255,255,255,.92);border:1px solid #0b5394;color:#0b5394;font-weight:bold;font-size:11px;padding:1px 5px}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="chip">0 م</div>
+<button class="fab" id="fabAdd" title="تشغيل/إيقاف إضافة النقط">➕</button>
+<button class="fab" id="fabUndo" title="تراجع">↩</button>
+<button class="fab" id="fabLoc" title="موقعي">◎</button>
+<button class="fab" id="fabSet" title="الإعدادات">⚙</button>
+<div id="toast"></div>
+<div id="app">
+  <div id="side">
+    <header><button id="closeSide" title="إخفاء">✕</button><h1>📍 قياس المسافات على الخريطة</h1><div class="muted" style="color:#cfe0f3">اضغط على الخريطة لإضافة نقطة • اسحب النقطة لتحريكها</div></header>
+
+    <div class="sec">
+      <div class="row">
+        <button id="mPath" class="on" title="المسافة من نقطة للي بعدها">مسار متصل</button>
+        <button id="mStar" title="مسافة كل نقطة من النقطة رقم 1">من النقطة 1</button>
+        <button id="addMode" class="on" title="إيقاف/تشغيل الإضافة بالضغط">➕ إضافة: شغالة</button>
+      </div>
+      <div class="row">
+        <span>لون الخط:</span>
+        <span id="swatches" style="display:flex;gap:4px"></span>
+        <input id="lineColor" type="color" value="#ffcc00" title="لون تاني" style="width:34px;height:28px;padding:1px">
+        <select id="lineWidth" title="سُمك الخط"><option value="2">رفيع</option><option value="4" selected>عادي</option><option value="7">تخين</option></select>
+      </div>
+      <div class="row">
+        <span>إجمالي:</span><span class="big" id="total">0 م</span>
+      </div>
+      <div class="row">
+        <label>سماحية زيادة طول الكابل %</label>
+        <input id="slack" type="number" value="0" min="0" step="1" style="width:70px">
+        <span id="withSlack" class="muted"></span>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="row">
+        <input id="coordIn" placeholder="24.7136, 46.6753 أو لينك جوجل ماب" style="flex:1;direction:ltr">
+        <button id="addCoord">إضافة</button>
+      </div>
+      <div class="row">
+        <button id="myLoc">📍 نقطة في موقعي</button>
+        <button id="undo">↩ تراجع</button>
+        <button id="fit">🔍 عرض الكل</button>
+        <button id="clear" class="red">🗑 مسح الكل</button>
+      </div>
+      <div class="row">
+        <button id="csv">⬇ Excel/CSV</button>
+        <button id="kml">⬇ KML (جوجل إيرث)</button>
+        <button id="copy">📋 نسخ</button>
+        <label style="cursor:pointer">📂 فتح KML/CSV<input id="imp" type="file" accept=".kml,.csv,.txt" hidden></label>
+      </div>
+      <div id="msg" class="muted"></div>
+    </div>
+
+    <div id="list"></div>
+  </div>
+</div>
+
+<script>
+const map = L.map('map',{zoomControl:true,maxZoom:22}).setView([24.7136,46.6753],12);
+// maxNativeZoom: لما الزوم يعدّي أعلى دقة متاحة، بيكبّر آخر صورة بدل ما الخريطة تفضى
+const gHybrid = L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}&hl=ar',{subdomains:'0123',maxZoom:22,maxNativeZoom:20,attribution:'© Google'});
+const gSat = L.tileLayer('https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',{subdomains:'0123',maxZoom:22,maxNativeZoom:20,attribution:'© Google'});
+const gRoad = L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&hl=ar',{subdomains:'0123',maxZoom:22,maxNativeZoom:20,attribution:'© Google'});
+const esri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:22,maxNativeZoom:18,attribution:'© Esri'});
+const esriClarity = L.tileLayer('https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:22,maxNativeZoom:19,attribution:'© Esri Clarity'});
+const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:22,maxNativeZoom:19,attribution:'© OpenStreetMap'});
+gHybrid.addTo(map);
+L.control.layers({
+  'قمر صناعي + أسماء (Google)':gHybrid,
+  'قمر صناعي بدون أسماء (Google)':gSat,
+  'قمر صناعي (Esri)':esri,
+  'قمر صناعي (Esri Clarity)':esriClarity,
+  'شوارع (Google)':gRoad,
+  'شوارع (OpenStreetMap)':street
+},null,{position:'topleft',collapsed:true}).addTo(map);
+L.control.scale({imperial:false}).addTo(map);
+
+let pts = [];            // {lat,lng,name,marker}
+let mode = 'path';       // path | star
+let adding = true;
+let lineColor = '#ffcc00', lineWidth = 4;
+const lines = L.layerGroup().addTo(map);
+const $ = id => document.getElementById(id);
+
+function hav(a,b){
+  const R=6371008.8, r=Math.PI/180;
+  const dLat=(b.lat-a.lat)*r, dLng=(b.lng-a.lng)*r;
+  const h=Math.sin(dLat/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+function fmt(m){ return m>=1000 ? (m/1000).toFixed(3)+' كم' : m.toFixed(1)+' م'; }
+function say(t){ $('msg').textContent=t; const ts=$('toast'); ts.textContent=t; ts.style.display='block'; clearTimeout(say.t); say.t=setTimeout(()=>{$('msg').textContent='';ts.style.display='none';},3500); }
+
+function icon(n){ return L.divIcon({className:'lbl',html:n,iconSize:[26,26],iconAnchor:[13,13]}); }
+
+function addPoint(lat,lng,name){
+  const p={lat,lng,name:name||''};
+  p.marker=L.marker([lat,lng],{draggable:true,icon:icon(pts.length+1)}).addTo(map);
+  p.marker.on('drag',e=>{const ll=e.target.getLatLng();p.lat=ll.lat;p.lng=ll.lng;redraw(false);});
+  p.marker.on('dragend',()=>redraw(true));
+  p.marker.on('click',()=>{ const i=pts.indexOf(p); document.querySelectorAll('.pt')[i]?.scrollIntoView({behavior:'smooth',block:'center'}); });
+  pts.push(p); redraw(true);
+}
+function removePoint(i){ map.removeLayer(pts[i].marker); pts.splice(i,1); redraw(true); }
+
+function segments(){
+  const s=[];
+  for(let i=1;i<pts.length;i++){
+    const a = mode==='path'?pts[i-1]:pts[0];
+    s.push({from:mode==='path'?i:1,to:i+1,d:hav(a,pts[i]),a,b:pts[i]});
+  }
+  return s;
+}
+
+function redraw(full){
+  lines.clearLayers();
+  pts.forEach((p,i)=>p.marker.setIcon(icon(i+1)));
+  const segs=segments();
+  let total=0;
+  segs.forEach(s=>{
+    total+=s.d;
+    const ln=L.polyline([[s.a.lat,s.a.lng],[s.b.lat,s.b.lng]],{color:lineColor,weight:lineWidth,opacity:.95,dashArray:mode==='star'?'6 6':null}).addTo(lines);
+    ln.bindTooltip(fmt(s.d),{permanent:true,direction:'center',className:'dist-tip'});
+  });
+  $('total').textContent = mode==='path' ? fmt(total) : (pts.length>1? 'أبعد نقطة: '+fmt(Math.max(...segs.map(s=>s.d))) : '0 م');
+  const sl=parseFloat($('slack').value)||0;
+  $('withSlack').textContent = (mode==='path' && sl>0 && total>0) ? 'بعد السماحية: '+fmt(total*(1+sl/100)) : '';
+  $('chip').innerHTML = $('total').textContent + (pts.length? `<small>${pts.length} نقطة${$('withSlack').textContent?' • '+$('withSlack').textContent:''}</small>`:'');
+  if(full){ renderList(segs); save(); }
+  else { // update numbers only while dragging
+    document.querySelectorAll('.pt').forEach((el,i)=>{
+      el.querySelector('.coords').textContent=pts[i].lat.toFixed(6)+', '+pts[i].lng.toFixed(6);
+      const sg=el.querySelector('.seg'); if(sg&&segs[i-1]) sg.textContent=segText(segs[i-1]);
+    });
+  }
+}
+function segText(s){ return `↳ من ${s.from} إلى ${s.to}: ${fmt(s.d)}`; }
+
+function renderList(segs){
+  const L_=$('list'); L_.innerHTML='';
+  if(!pts.length){ L_.innerHTML='<div class="muted" style="padding:10px">مفيش نقط لسه. اضغط على الخريطة أو اكتب إحداثيات.</div>'; return; }
+  let run=0;
+  pts.forEach((p,i)=>{
+    const d=document.createElement('div'); d.className='pt';
+    if(i>0 && mode==='path') run+=segs[i-1].d;
+    d.innerHTML=`<div class="top"><span class="num">${i+1}</span>
+      <span class="coords">${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}</span>
+      <span><button data-a="go" title="روح للنقطة">🎯</button> <button data-a="del" class="red" title="حذف">✕</button></span></div>
+      <input placeholder="اسم النقطة (مثلاً: محول 1 / RMU)" value="${p.name.replace(/"/g,'&quot;')}">
+      ${i>0?`<div class="seg">${segText(segs[i-1])}${mode==='path'?` &nbsp;|&nbsp; تراكمي: ${fmt(run)}`:''}</div>`:''}`;
+    d.querySelector('[data-a=del]').onclick=()=>removePoint(i);
+    d.querySelector('[data-a=go]').onclick=()=>{map.setView([p.lat,p.lng],Math.max(map.getZoom(),18));closeSide();};
+    d.querySelector('input').oninput=e=>{p.name=e.target.value; save(); p.marker.bindTooltip(p.name||'',{direction:'top'});};
+    if(p.name) p.marker.bindTooltip(p.name,{direction:'top'});
+    L_.appendChild(d);
+  });
+}
+
+// ===== لون وسُمك الخط =====
+const COLORS=['#ffcc00','#ff3b30','#00c853','#2979ff','#ff00ff','#ffffff','#000000'];
+function setColor(c){
+  lineColor=c; $('lineColor').value=c;
+  document.querySelectorAll('#swatches span').forEach(s=>s.style.outline = s.dataset.c===c?'2px solid #0b5394':'none');
+  try{localStorage.setItem('mdt_color',c);}catch(e){}
+  redraw(false);
+}
+COLORS.forEach(c=>{
+  const s=document.createElement('span'); s.dataset.c=c;
+  s.style.cssText=`width:22px;height:22px;border-radius:50%;background:${c};border:1px solid #999;cursor:pointer;outline-offset:1px`;
+  s.onclick=()=>setColor(c); $('swatches').appendChild(s);
+});
+$('lineColor').oninput=e=>setColor(e.target.value);
+$('lineWidth').onchange=e=>{ lineWidth=+e.target.value; try{localStorage.setItem('mdt_width',lineWidth);}catch(_){} redraw(false); };
+try{ const c=localStorage.getItem('mdt_color'); if(c) lineColor=c; const w=localStorage.getItem('mdt_width'); if(w){lineWidth=+w; $('lineWidth').value=w;} }catch(e){}
+setColor(lineColor);
+
+let justClosed=false;
+map.on('click',e=>{ if(justClosed){justClosed=false;return;} if(adding) addPoint(e.latlng.lat,e.latlng.lng); });
+
+function setMode(m){ mode=m; try{localStorage.setItem('mdt_mode',m);}catch(e){} $('mPath').classList.toggle('on',m==='path'); $('mStar').classList.toggle('on',m==='star'); redraw(true); }
+$('mPath').onclick=()=>setMode('path');
+$('mStar').onclick=()=>setMode('star');
+function toggleAdd(){ adding=!adding; $('addMode').classList.toggle('on',adding); $('addMode').textContent= adding?'➕ إضافة: شغالة':'➕ إضافة: متوقفة'; $('fabAdd').classList.toggle('off',!adding); say(adding?'الإضافة شغالة – اضغط على الخريطة':'الإضافة متوقفة – تقدر تتحرك في الخريطة براحتك'); }
+$('addMode').onclick=toggleAdd; $('fabAdd').onclick=toggleAdd;
+$('slack').oninput=()=>{ try{localStorage.setItem('mdt_slack',$('slack').value);}catch(e){} redraw(false); };
+$('undo').onclick=()=>{ if(pts.length) removePoint(pts.length-1); };
+$('clear').onclick=()=>{ if(!pts.length) return; if(!$('clear').dataset.sure){ $('clear').dataset.sure=1; $('clear').textContent='⚠ اضغط تاني للتأكيد'; setTimeout(()=>{delete $('clear').dataset.sure;$('clear').textContent='🗑 مسح الكل';},3000); return; }
+  pts.forEach(p=>map.removeLayer(p.marker)); pts=[]; delete $('clear').dataset.sure; $('clear').textContent='🗑 مسح الكل'; redraw(true); };
+$('fit').onclick=()=>{ closeSide(); if(pts.length) map.fitBounds(L.latLngBounds(pts.map(p=>[p.lat,p.lng])).pad(0.2)); };
+
+function parseCoord(t){
+  t=t.trim();
+  let m=t.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || t.match(/[?&](?:q|query|ll)=(-?\d+\.\d+),\s*(-?\d+\.\d+)/) || t.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/) || t.match(/(-?\d+(?:\.\d+)?)\s*[,،\s]\s*(-?\d+(?:\.\d+)?)/);
+  if(!m) return null;
+  const lat=parseFloat(m[1]), lng=parseFloat(m[2]);
+  if(Math.abs(lat)>90||Math.abs(lng)>180) return null;
+  return {lat,lng};
+}
+$('addCoord').onclick=()=>{
+  const c=parseCoord($('coordIn').value);
+  if(!c){ say('الإحداثيات مش مفهومة. اكتبها كده: 24.7136, 46.6753'); return; }
+  addPoint(c.lat,c.lng); map.setView([c.lat,c.lng],Math.max(map.getZoom(),17)); $('coordIn').value=''; closeSide();
+};
+$('coordIn').onkeydown=e=>{ if(e.key==='Enter') $('addCoord').click(); };
+
+// ===== الموقع الحالي: بيفتح عليه تلقائي وبيتابعه =====
+let me=null, meAcc=null, myPos=null, firstFix=true;
+function showMe(pos){
+  myPos=[pos.coords.latitude,pos.coords.longitude];
+  const acc=pos.coords.accuracy;
+  if(!me){
+    meAcc=L.circle(myPos,{radius:acc,color:'#1a73e8',weight:1,fillOpacity:.12,interactive:false}).addTo(map);
+    me=L.circleMarker(myPos,{radius:8,color:'#fff',weight:3,fillColor:'#1a73e8',fillOpacity:1}).addTo(map);
+  } else { me.setLatLng(myPos); meAcc.setLatLng(myPos).setRadius(acc); }
+  me.bindTooltip('موقعي (دقة ±'+Math.round(acc)+' م)');
+  try{ localStorage.setItem('mdt_last',JSON.stringify(myPos)); }catch(e){}
+  if(firstFix){ firstFix=false; map.setView(myPos,18); }
+}
+function startLocating(){
+  if(!navigator.geolocation){ say('المتصفح مش بيدعم تحديد الموقع'); return; }
+  navigator.geolocation.watchPosition(showMe, err=>{
+    say(err.code===1 ? 'لازم تسمح للمتصفح يعرف موقعك' : 'مقدرش يحدد الموقع: '+err.message);
+  },{enableHighAccuracy:true,timeout:20000,maximumAge:5000});
+}
+// لو مفيش GPS لسه، افتح على آخر موقع معروف
+try{ const last=JSON.parse(localStorage.getItem('mdt_last')||'null'); if(last) map.setView(last,17); }catch(e){}
+startLocating();
+
+$('fabLoc').onclick=()=>{
+  if(myPos) map.setView(myPos,Math.max(map.getZoom(),18));
+  else { firstFix=true; say('بيحدد موقعك...'); startLocating(); }
+};
+$('myLoc').onclick=()=>{
+  if(!myPos){ say('لسه مش عارف موقعك، استنى ثواني'); return; }
+  addPoint(myPos[0],myPos[1],'موقعي'); map.setView(myPos,Math.max(map.getZoom(),18)); closeSide();
+};
+
+// ===== إظهار/إخفاء الإعدادات =====
+function openSide(){ $('side').classList.add('open'); }
+function closeSide(){ $('side').classList.remove('open'); }
+$('fabSet').onclick=()=> $('side').classList.contains('open')?closeSide():openSide();
+$('closeSide').onclick=closeSide;
+map.on('mousedown touchstart',()=>{ if($('side').classList.contains('open')){ closeSide(); justClosed=true; setTimeout(()=>justClosed=false,600);} });
+$('fabUndo').onclick=()=>{ if(pts.length) removePoint(pts.length-1); else say('مفيش نقط'); };
+
+function rows(){
+  const segs=segments(); let run=0;
+  return pts.map((p,i)=>{ const d=i>0?segs[i-1].d:0; if(mode==='path') run+=d;
+    return [i+1,p.name,p.lat.toFixed(6),p.lng.toFixed(6),d.toFixed(1),mode==='path'?run.toFixed(1):'']; });
+}
+function download(name,text,type){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type})); a.download=name; document.body.appendChild(a); a.click(); a.remove();
+}
+const stamp=()=>new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+$('csv').onclick=()=>{
+  if(!pts.length) return say('مفيش نقط');
+  const head=['رقم','الاسم','Latitude','Longitude', mode==='path'?'المسافة من السابقة (م)':'المسافة من نقطة 1 (م)','التراكمي (م)'];
+  const sl=parseFloat($('slack').value)||0;
+  let txt=[head,...rows()].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  if(mode==='path'){ const t=segments().reduce((a,s)=>a+s.d,0); txt+=`\r\n\r\n"الإجمالي (م)",${t.toFixed(1)}`; if(sl>0) txt+=`\r\n"بعد سماحية ${sl}% (م)",${(t*(1+sl/100)).toFixed(1)}`; }
+  download('points_'+stamp()+'.csv','﻿'+txt,'text/csv;charset=utf-8');
+};
+$('kml').onclick=()=>{
+  if(!pts.length) return say('مفيش نقط');
+  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const pm=pts.map((p,i)=>`<Placemark><name>${esc(p.name||('P'+(i+1)))}</name><Point><coordinates>${p.lng},${p.lat},0</coordinates></Point></Placemark>`).join('');
+  const line= mode==='path'&&pts.length>1 ? `<Placemark><name>Route ${fmt(segments().reduce((a,s)=>a+s.d,0))}</name><Style><LineStyle><color>ff${lineColor.slice(5,7)}${lineColor.slice(3,5)}${lineColor.slice(1,3)}</color><width>${lineWidth}</width></LineStyle></Style><LineString><coordinates>${pts.map(p=>p.lng+','+p.lat+',0').join(' ')}</coordinates></LineString></Placemark>`:'';
+  download('points_'+stamp()+'.kml',`<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document>${pm}${line}</Document></kml>`,'application/vnd.google-earth.kml+xml');
+};
+$('copy').onclick=async()=>{
+  if(!pts.length) return say('مفيش نقط');
+  const t=rows().map(r=>r.join('\t')).join('\n')+'\nالإجمالي: '+$('total').textContent;
+  try{ await navigator.clipboard.writeText(t); say('اتنسخ – تقدر تلزقه في Excel'); }catch(e){ say('النسخ مش متاح هنا'); }
+};
+$('imp').onchange=e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>{
+    const t=r.result; let n=0;
+    if(/<kml/i.test(t)){
+      const doc=new DOMParser().parseFromString(t,'text/xml');
+      doc.querySelectorAll('Placemark').forEach(pm=>{
+        const pt=pm.querySelector('Point coordinates'); if(!pt) return;
+        const [lng,lat]=pt.textContent.trim().split(',').map(Number);
+        addPoint(lat,lng,pm.querySelector('name')?.textContent||''); n++;
+      });
+    } else {
+      t.split(/\r?\n/).forEach(line=>{
+        const c=line.split(',').map(s=>s.replace(/"/g,'').trim());
+        const nums=c.map(Number); const idx=nums.findIndex((v,i)=>!isNaN(v)&&c[i]!==''&&Math.abs(v)<=90&&String(c[i]).includes('.')&&!isNaN(nums[i+1])&&Math.abs(nums[i+1])<=180&&String(c[i+1]).includes('.'));
+        if(idx>=0){ addPoint(nums[idx],nums[idx+1], idx>0?c[idx-1]:''); n++; }
+      });
+    }
+    say(n? `اتضاف ${n} نقطة` : 'مالقيتش نقط في الملف'); if(n) $('fit').click();
+    e.target.value='';
+  };
+  r.readAsText(f);
+};
+
+// ===== حفظ النقط عشان متضيعش لما تقفل التطبيق =====
+let restoring=false;
+function save(){ if(restoring) return; try{ localStorage.setItem('mdt_pts',JSON.stringify(pts.map(p=>({lat:p.lat,lng:p.lng,name:p.name})))); }catch(e){} }
+try{
+  const sl=localStorage.getItem('mdt_slack'); if(sl) $('slack').value=sl;
+  const m=localStorage.getItem('mdt_mode'); if(m) mode=m, $('mPath').classList.toggle('on',m==='path'), $('mStar').classList.toggle('on',m==='star');
+  const saved=JSON.parse(localStorage.getItem('mdt_pts')||'[]');
+  restoring=true; saved.forEach(p=>addPoint(p.lat,p.lng,p.name)); restoring=false;
+  if(saved.length) say('رجّعت '+saved.length+' نقطة من آخر مرة');
+}catch(e){ restoring=false; }
+redraw(true);
+
+// ===== تشغيل التطبيق أوفلاين =====
+if('serviceWorker' in navigator && location.protocol==='https:'){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+</script>
+</body>
+</html>
